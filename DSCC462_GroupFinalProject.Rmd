@@ -1,0 +1,601 @@
+---
+title: "DSCC 462: Computational Introduction to Statistics Final Project"
+author: "Sixiao Song | Ruilin Zhang | Tan Phan | Raymond Yu"
+date: "2023-12-14"
+output:
+  pdf_document: default
+---
+# Introduction
+
+The dataset selected for our final project originates from a Kaggle competition and it belongs to a leading online E-Commerce company. An online retail (E-commerce) company wants to know the customers who are going to churn, so accordingly they can approach customers to offer some promos. The dataset encompasses 20 variables and 5630 rows, providing a rich source of insights into customer behavior and purchase patterns. Key features include customer demographics, purchase history, and customer support interactions. 
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(stringr)
+```
+
+# Exploratory data analysis (EDA)
+
+```{r}
+data <- read_excel("ECommerce_Dataset.xlsx")
+print(data)
+# Check data structure
+str(data)
+# Descriptive statistics
+summary(data)
+```
+```{r}
+colnames(data)
+```
+## Change Column Names:
+
+```{r}
+names(data)[names(data) == "PreferedOrderCat"] <- "PreferredOrderCat"
+data$PreferredLoginDevice <- as.factor(str_replace(data$PreferredLoginDevice, 
+                                                 "Mobile Phone", "Mobile"))
+data$PreferredLoginDevice <- as.factor(str_replace(data$PreferredLoginDevice, 
+                                                 "Phone", "Mobile"))
+data$PreferredPaymentMode <- as.factor(str_replace(data$PreferredPaymentMode, 
+                                                   "CC", "Credit Card"))
+data$PreferredPaymentMode <- as.factor(str_replace(data$PreferredPaymentMode, 
+                                                   "COD", "Cash on Delivery"))
+data$PreferredOrderCat <- as.factor(str_replace(data$PreferredOrderCat, 
+                                                  "Mobile Phone", "Mobile"))
+```
+
+## Missing Values:
+
+```{r}
+sum(is.na(data))
+colSums(is.na(data))
+```
+*Insight: Some columns have missing values, total of 1856. Some columns, such as "MaritalStatus," "NumberOfAddress," and "Complain," have zero missing values. This information is useful for understanding the completeness of data in certain aspects.*
+
+```{r}
+# Imputing missing values under numerical data using median
+data$Tenure[is.na(data$Tenure)] <- round(median(data$Tenure,na.rm=TRUE))
+data$WarehouseToHome[is.na(data$WarehouseToHome)] <- round(
+  median(data$WarehouseToHome,na.rm=TRUE))
+data$HourSpendOnApp[is.na(data$HourSpendOnApp)] <- round(
+  median(data$HourSpendOnApp,na.rm=TRUE))
+data$OrderAmountHikeFromlastYear[is.na(data$OrderAmountHikeFromlastYear)] <- round(
+  median(data$OrderAmountHikeFromlastYear,na.rm=TRUE))
+data$CouponUsed[is.na(data$CouponUsed)] <- round(
+  median(data$CouponUsed,na.rm=TRUE))
+data$OrderCount[is.na(data$OrderCount)] <- round(
+  median(data$OrderCount,na.rm=TRUE))
+data$DaySinceLastOrder[is.na(data$DaySinceLastOrder)] <- round(
+  median(data$DaySinceLastOrder,na.rm=TRUE))
+```
+
+```{r}
+# Check again missing values
+sum(is.na(data))
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Visualize the data using histograms: 
+
+### a) The CEO would like to gain some insights into the distribution of the time elapsed since customers placed their last orders. How many bins does Sturges’ formula suggest we use for a histogram of DaySinceLastOrder?
+
+```{r}
+ceiling(log(length(data$DaySinceLastOrder), 2)) + 1
+```
+
+### b) Create a histogram of DaySinceLastOrder using the number of bins suggested by Sturges’ formula. Make sure to appropriately title the histogram and label the axes. Comment on the center, shape, and spread. Calculate the mean, median, and 10% trimmed mean of the DaySinceLastOrder. Report the mean, median, and 10% trimmed mean on the histogram. 
+
+```{r}
+x <- mean(data$DaySinceLastOrder)
+y <- median(data$DaySinceLastOrder)
+z <- mean(data$DaySinceLastOrder, trim = 0.1)
+
+ggplot(data = data, aes(x = DaySinceLastOrder)) +
+geom_histogram(bins = 14) +
+xlab("Day Since Last Order") +
+ylab("Count") +
+ggtitle("Histogram of Day Since Last Order") +
+  geom_vline(xintercept = x, color = "red") +
+  annotate("text", x = 10, y = 2000,
+label = paste("bar(x)==",round(x,3)),parse=T, color="red") +
+  geom_vline(xintercept = y, color = "blue") +
+  annotate("text", x = 10, y = 2200,
+label = paste("tilde(x)==",round(y,3)),parse=T, color="blue") +
+  geom_vline(xintercept = z, color = "green") +
+  annotate("text", x = 10, y = 1800,
+label = paste("bar(x)[10] == ",round(z,3)), parse=T, color="green4")
+```
+
+*Insight: The histogram is unimodal and positively (right) skewed. The mean of 4.459 indicates the average time elapsed since the last order. The median of 3 suggests that half of the observations fall below 3, indicating a potential right skew in the distribution. And 10% trim mean of day since last order is 4.115.*
+
+### c) Calculate and report the interquartile range. 
+
+```{r}
+IQR(data$DaySinceLastOrder)
+```
+
+*Insight: The IQR is 5.*
+
+### d) Calculate and report the standard span, the lower fence, and the upper fence.
+
+```{r}
+standard_span <- 1.5 * IQR (data$DaySinceLastOrder)
+lower_fence <- quantile(data$DaySinceLastOrder, 0.25) - standard_span
+upper_fence <- quantile(data$DaySinceLastOrder, 0.75) + standard_span
+cat("The standard span is", standard_span, "\n")
+cat("The lower fence is", lower_fence, "\n")
+cat("The upper fence is", upper_fence, "\n")
+```
+
+## 1. Inference about mean(s):
+
+### Q1: By using independent samples t-test or Welch's t-test (if variances are not assumed to be equal), the CEO wants to know are the mean values of cashback amount between female and male significantly different.
+
+### a) Create a side-by-side quantile-quantile (Q-Q) plots for cashback amounts, comparing the distribution of cashback amounts between male and female customers.
+
+```{r}
+# Filter data for male and female
+data_male <- subset(data, Gender == "Male")
+data_female <- subset(data, Gender == "Female")
+# Create quantile-quantile (Q-Q) plots for each gender
+par(mfrow = c(1, 2))
+
+qqnorm(data_male$CashbackAmount, main = "Q-Q Plot - Male Cashback")
+qqline(data_male$CashbackAmount, col = "red")
+title(main = "Q-Q Plot - Male Cashback", sub = "")
+axis(1, col = "darkgray", col.axis = "darkgray")
+axis(2, col = "darkgray", col.axis = "darkgray")
+grid()
+qqnorm(data_female$CashbackAmount, main = "Q-Q Plot - Female Cashback")
+qqline(data_female$CashbackAmount, col = "red")
+title(main = "Q-Q Plot - Female Cashback", sub = "")
+axis(1, col = "darkgray", col.axis = "darkgray")
+axis(2, col = "darkgray", col.axis = "darkgray")
+grid()
+
+par(mfrow = c(1, 1))
+```
+*Insight: It seems that the cashback data is not normally distributed. However, the sample size is large enough (>30). According to the Central Limit Theorem, we can still apply a t-test for mean inference.*
+
+### b) Create a box plot for Cashback Amounts by Gender, visualize the distribution of cashback amounts for different gender categories.
+
+```{r}
+boxplot(CashbackAmount ~ Gender, data = data, 
+        col = c("skyblue", "pink"),
+        main = "Box Plot of Cashback Amounts by Gender",
+        xlab = "Gender",
+        ylab = "CashbackAmount")
+```
+
+### c) Are the mean values of cashback amount between female and male significantly different? Perform an appropriate statistical test at the alpha = 0.05 significance level and comment on the results. 
+
+H0: The means of cashback amount of the two groups (male and female) are equal.
+H1: The means of cashback amount of the two groups (male and female) are not equal. 
+
+```{r}
+data_male <- subset(data, Gender == "Male")
+data_female <- subset(data, Gender == "Female")
+# Perform independent two-sample t-test
+t_test_result <- t.test(data_male$CashbackAmount, data_female$CashbackAmount)
+print(t_test_result)
+```
+*Insight: Given the p-value is 0.05812 which is greater than 0.05, we cannot reject the null hypothesis, indicating no significant difference in the mean Cashback Amounts between male and female groups.*
+
+## 2. Inference about variance(s):
+
+### Q2: The CEO wants to know are the variance values of cashback amounts between female and male significantly different? Perform an appropriate statistical test at the alpha = 0.05 significance level and comment on the results. 
+
+H0: The variance of cashback amount of the two groups (male and female) are equal.
+H1: The variance of cashback amount of the two groups (male and female) are not equal.
+
+```{r}
+data_male <- subset(data, Gender == "Male")
+data_female <- subset(data, Gender == "Female")
+# Perform independent two-sample f-test
+var_test_result <- var.test(data_male$CashbackAmount, 
+                            data_female$CashbackAmount)
+print(var_test_result)
+```
+
+*Insight: The test statistic (F) is 1.026. Given the p-value of 0.5076, which is greater than the significance level of 0.05, we fail to reject the null hypothesis. This suggests that there is no significant difference in the variance of Cashback Amounts between male and female groups.*
+
+## 3. Inference about proportion(s):
+
+### Q3: The CEO wants the team to conduct a hypothesis test to compare the churn rate of customers who use coupons to the average churn rate of all customers in order to determine whether there is a significant difference in churn rates between these two groups. 
+
+```{r}
+coupon_data = data[data$CouponUsed > 0,]
+```
+
+```{r}
+# Overall churn rate
+overall_churn_rate = sum(data$Churn)  / nrow(data)
+cat("Overall churn rate:", overall_churn_rate, "\n")
+# Churn rate of customers using coupon
+coupon_churn_rate =  sum(coupon_data$Churn, na.rm = TRUE) / nrow(coupon_data)
+cat("Coupon churn rate:", coupon_churn_rate, "\n")
+n_coupon_users <- nrow(coupon_data)
+cat("Number of coupon users:", n_coupon_users, "\n")
+n_all_users <- nrow(data)
+cat("Number of all users:", n_all_users, "\n")
+```
+### a) Create a pie chart to visualize the proportion of coupon users and non-coupon users in the dataset. 
+
+```{r, fig.align='center'}
+# Create a data frame for the number of users
+user_counts <- data.frame(
+  Group = c("Coupon Users", "Non-Coupon Users"),
+  Count = c(n_coupon_users, n_all_users - n_coupon_users))
+pie(user_counts$Count, labels = user_counts$Group, col = c(
+  "deepskyblue3", "lightblue"),
+    main = "Proportion of Coupon Users",
+    cex = 0.8)
+legend("bottomright", legend = paste(user_counts$Group, 
+                                     "(", user_counts$Count, ")", sep = ""),
+       fill = c("deepskyblue3", "lightblue"),cex = 0.8)
+```
+
+### b) Is the churn rate of customers who uses coupon higher than the average churn rate of all customers? Perform an appropriate statistical test at the alpha = 0.05 significance level and comment on the results. 
+
+H0: The churn rate of customers who uses coupon is equal to or smaller than the average churn rate of all customers.
+H1: The churn rate of customers who uses coupon is higher than the average churn rate of all customers
+
+```{r}
+# Perform one sample proportion z-test
+standard_error <- sqrt((overall_churn_rate * (1 - overall_churn_rate) 
+                        / n_coupon_users))
+z_stat <- (coupon_churn_rate - overall_churn_rate) / standard_error
+p_value <- 1 - pnorm(z_stat)
+
+cat("Coupon Users Churn Rate:", coupon_churn_rate, "\n")
+cat("Overall Churn Rate:", overall_churn_rate, "\n")
+cat("Z-statistic:", z_stat, "\n")
+cat("P-value:", p_value, "\n")
+
+#if (p_value < 0.05) {
+#  cat("Reject the null hypothesis.")
+#} else {
+#  cat("Fail to reject the null hypothesis.")}
+```
+*Insight: With a p-value of 0.6897245 (greater than the significance level of 0.05), we fail to reject the null hypothesis. This means there is no significant evidence to conclude that the churn rate for coupon users is higher than the average churn rate for all customers.*
+
+## 4. Inference about two proportions:
+
+### Q4: The CFO wants to better understand the relationship between churn rate and gender.
+
+```{r}
+female_count <- sum(data$Gender == "Female", na.rm = TRUE)
+male_count <- sum(data$Gender == "Male", na.rm = TRUE)
+cat("Number of Females:", female_count, "\n")
+cat("Number of Males:", male_count, "\n")
+```
+
+```{r}
+churn <- data$OrderCount[data$Churn == 1]
+not_churn <- data$OrderCount[data$Churn == 0]
+female_data <- filter(data, Gender == "Female")
+male_data <- filter(data, Gender == "Male")
+# Count the number of rows where churn is '1' for females
+female_data_churn <- sum(female_data$Churn == 1)
+cat("Number of Females Churn:", female_data_churn, "\n")
+# Count the number of rows where churn is '1' for males
+male_data_churn <- sum(male_data$Churn == 1)
+cat("Number of Males Churn:", male_data_churn, "\n")
+```
+
+### a) The CEO wants to know if the percentage of female who churn is higher than the percentage of male who churn. Out of a sample of 2246 females, they found that 348 of them churn. Out of 3384 males, they found that 600 of them churn. We would like to run a test to determine whether their hypothesis is true with a Type I error probability of 0.05.
+
+```{r}
+# Perform two sample proportion z-test
+female_count <- sum(data$Gender == "Female", na.rm = TRUE)
+male_count <- sum(data$Gender == "Male", na.rm = TRUE)
+
+two_sample_z_test <- prop.test(
+  x = c(female_data_churn, male_data_churn),
+  n = c(female_count, male_count), p = NULL)
+two_sample_z_test
+```
+
+*Insight: The analysis conducted on a sample of 2246 females and 3384 males aimed to assess whether there is a significant difference in the churn rates between the two gender groups. The results of a two-sample z-test for equality of proportions revealed a statistically significant difference, with a p-value of 0.03082. The test results yield a p-value of 0.03082, which is less than the Type I error probability of 0.05. Therefore, we reject the null hypothesis, suggesting a gender-based distinction in churn rates within the studied population.*
+
+### b) Construct a two-sided 95% confidence interval for the proportion of each gender that who churn.
+
+```{r}
+n_female <- 2246
+n_male <- 3384
+  
+ci_female <- prop.test(x = c(female_data_churn),
+                       n = c(n_female),
+                       alternative = "two.sided",
+                       conf.level = 0.95,
+                       correct = TRUE)
+ci_female
+ci_male <- prop.test(x = c(male_data_churn),
+                       n = c(n_male),
+                       alternative = "two.sided",
+                       conf.level = 0.95,
+                       correct = TRUE)
+ci_male
+cat("95% Confidence Interval for the Proportion of Females who Churn:", 
+    ci_female$conf.int, "\n")
+cat("95% Confidence Interval for the Proportion of Males who Churn:", 
+    ci_male$conf.int, "\n")
+```
+
+*Insight: For a two-sided confidence interval, we are 95% confident that the interval between 0.1404 and 0.1707 contains the true difference in the proportion of females who churn. We are 95% confident that the interval between 0.1647 and 0.1907 contains the true difference in the proportion of males who churn.*
+
+## 5. Chi-Squared Inference (goodness-of-fit or test of independence):
+
+### Q5: Based on the data, which involves an online retail (E-commerce) company and includes various customer-related features, we are interested in exploring the relationships between variables. Chi-square tests are appropriate for analyzing such relationships.
+
+### a) First of all, the CEO wants to understand how many customers have churn on each preferred order category.
+
+```{r}
+grouped_data <- data %>%
+    group_by(PreferredOrderCat) %>%
+    summarise(total_count = n(), .groups = "drop") %>%
+    as.data.frame()
+grouped_data
+```
+
+```{r}
+# Extracting 'OrderCount' for churn and not churn customers
+churn <- data$OrderCount[data$Churn == 1]
+not_churn <- data$OrderCount[data$Churn == 0]
+# Creating a summary data frame
+grouped_data <- data %>%
+  group_by(PreferredOrderCat) %>%
+  summarise(total_churn = sum(Churn == 1), total_not_churn = sum(Churn == 0), 
+            .groups = "drop") %>%
+  as.data.frame()
+grouped_data
+```
+
+### b) Visualize the proportion of churn and not churn customers within each preferred order category. Which preferred order categories have the highest and lowest churn rates?
+
+```{r}
+ggplot(data = grouped_data, aes(x = PreferredOrderCat)) +
+  geom_bar(aes(y = total_churn + total_not_churn, 
+               fill = "Not Churn"), stat = "identity") +
+  geom_bar(aes(y = total_churn, fill = "Churn"), stat = "identity") +
+  scale_fill_manual(values = c("Churn" = "lightblue", 
+                               "Not Churn" = "skyblue4")) +
+  labs(title = "Proportion of Churn and Not Churn Customers\n 
+       in Each Preferred Order Category",
+       x = "Preferred Order Category",
+       y = "Count",
+       fill = "Churn Status")
+```
+
+```{r}
+# Calculate churn rates
+grouped_data$churn_rate <- (grouped_data$total_churn / 
+          (grouped_data$total_churn + grouped_data$total_not_churn)) * 100
+print(grouped_data)
+```
+
+*Insight: It was found that the category with the highest churn rate is Mobile, where approximately 27.4% of customers churned. This suggests a relatively higher likelihood of customer attrition within the Mobile category. On the other hand, the category with the lowest churn rate is Grocery, with a churn rate of around 4.88%. This implies a comparatively lower likelihood of customers leaving within the Grocery category.*
+
+### c) A contingency table with counts for each combination of "Preferred Order Category" and "Total Churn" is presented. The table is formatted for a chi-squared test. Is there a significant association between the preferred order category and customer churn for the online retail company? Conduct an appropriate test at 0.05 significance level to determine whether customers churn is associated with their preferred category.
+
+\begin{center}
+  \begin{tabular}{c|ccc|c}
+    \hline
+    \text{Prefered Order Category} & \text{Total Churn} & \text{Total Not Churn} & \text{Total}\\
+    \hline
+    \text{Fashion} & 128 & 698 &  826\\
+    \text{Grocery} & 20 & 390 & 410 \\
+    \text{LaptopAccessory} & 210 & 1840 & 2050\\
+    \text{Mobile} & 570 & 1510 & 2080\\
+    \text{Others} & 20 & 244 & 264\\
+    \hline  
+    \text{Total} & 948 & 4682 & 5630 \\
+  \end{tabular}
+\end{center}
+
+\vspace{10pt}
+
+H0: There is no association between the preferred order category and customer churn.
+H1: There is a significant association between the preferred order category and customer churn.
+
+```{r}
+chi.table <- matrix(c(128, 20, 210, 570, 20, 698, 390, 1840, 1510, 244), 
+                nrow=5, ncol=2)
+chisq.test(chi.table, correct = F)
+```
+
+*Insight: From the test, chi-squared statistic is 288.6, degree of freedom is 4, the p-value is very close to zero (p-value < 2.2e-16). Given that the p-value is less than the significance level of 0.05, we reject the null hypothesis. Therefore, there is a significant association between the preferred order category and customer churn for the online retail company. This suggests that customer churn is not independent of the preferred order category, and there is evidence that the two variables are associated.*
+
+### d) Create a visualization that represents the total churn in each preferred order category.
+
+```{r}
+# Extracting a dataframe with only "PreferredOrderCat" and "total_churn"
+extracted_data <- grouped_data[, c("PreferredOrderCat", "total_churn")]
+extracted_data
+```
+
+```{r}
+ggplot(data = extracted_data, aes(x = PreferredOrderCat, 
+                                  y = total_churn, fill = PreferredOrderCat)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = total_churn), vjust = 1.6, color = "white", 
+            position = position_dodge(width = 0.5), size = 3.5) +
+  ggtitle("Number of Churn Customers for Each Preferred Order Category")
+```
+
+*Insight: A significant number of customers in the Mobile category have churn, while the proportions of churn in the Fashion, Laptop & Accessory, Mobile categories appear to be relatively uniform. The number of customers churn in the category Grocery and Others appear to be the same.*
+
+### e) Based on previous knowledge, the team believe that 30% of customers have churn on Fashion, 10% of customers have churn on Grocery, 20% on Laptop & Accessory, 30% on Mobile, and 10% on others. To see if this is correct, run an appropriate statistical test at the alpha = 0.05 significance level. Is there evidence of a significant difference in churn rates between preferred order categories? Use the chi-square goodness-of-fit test.
+
+H0: Fashion = 0.3, Grocery = 0.1, Laptop & Accessory = 0.2, 
+Mobile = 0.3, Others = 0.1
+H1: At least one of these equities does not hold.
+
+```{r}
+chisq_test <- chisq.test(c(128, 20, 210, 570, 20), 
+                    p = c(0.3, 0.1, 0.2, 0.3, 0.1))
+
+print(chisq_test)
+```
+
+*Insight: We conduct a chi-square test for given probabilities to evaluate whether the observed proportions of churn in each preferred order category align with the team's beliefs. The assumed proportions are specified. From the test, chi-squared statistic is 493.05, degree of freedom is 4, the p-value is very close to zero (p-value < 2.2e-16). Given that the p-value is less than the significance level of 0.05, we reject the null hypothesis. Therefore, there is a significant difference in churn rates between preferred order categories. This suggests that the observed distribution of churn customers is significantly different from what would be expected based on the given probabilities.*
+
+## 6. ANOVA:
+
+### Q6: The CEO thinks no matter which login device used that the female spend more on as they get more cash back amount on each login device.
+
+### a) Create a side-by-side boxplot to visualize the cash back amount of each preferred login device and group by Gender. Make sure to label the plot (title, axes), and comment on trends based on observation.
+
+```{r}
+# Convert CashbackAmount to numeric
+data$CashbackAmount <- as.numeric(as.character(data$CashbackAmount))
+# Calculate median values for each boxplot
+medians <- data %>%
+  group_by(PreferredLoginDevice, Gender) %>%
+  summarise(Median = median(CashbackAmount), .groups = 'drop')
+# Create a side-by-side boxplot
+ggplot(data, aes(x = Gender, y = CashbackAmount, fill = Gender)) +
+  geom_boxplot() +
+  geom_text(data = medians, aes(label = Median, y = Median), 
+            position = position_dodge(width = 0.75), 
+            vjust = -0.5, size = 3, color = "black") +
+  facet_grid(.~PreferredLoginDevice) +
+  labs(title = "Cashback Amount by Gender within Preferred Login Device",
+       x = "Gender",
+       y = "Cashback Amount")
+```
+
+### b) Are the means of multiple populations, which are equal by Preferred Login Device and Gender? The CEO wants to compare mean for different preferred login device and gender. Run a two-way ANOVA test at the alpha = 0.05 significance level and comment on the results.
+
+*i. Main Effect of PreferredLoginDevice:*
+
+*H0: There is no significant difference in the means of the dependent variable across the different levels of PreferredLoginDevice.*
+
+*H1: There is a significant difference in the means of the dependent variable across the different levels of PreferredLoginDevice.*
+
+
+*ii. Main Effect of Gender:*
+
+*H0: There is no significant difference in the means of the dependent variable across different genders.*
+
+*H1: There is a significant difference in the means of the dependent variable across different genders.*
+
+
+*iii. Interaction Effect between PreferredLoginDevice and Gender:*
+
+*H0: The effect of PreferredLoginDevice on the dependent variable is the same for all levels of Gender (i.e., there's no interaction).*
+
+*H1: The effect of PreferredLoginDevice on the dependent variable is different for at least one level of Gender (i.e., there's interaction).*
+
+```{r}
+fit <- aov(data$CashbackAmount~data$PreferredLoginDevice * data$Gender)
+summary(fit)
+```
+
+*Insight: As p-value of the combination of column PreferredLoginDevice and column Gender is 0.934, which is not statistically significant, it means that the interaction effects is not significant. The non-significant p-values for Gender and the interaction suggest that they don't have a significant effect on the dependent variable in this analysis. Only The significant p-value for PreferredLoginDevice indicates that it significantly influences the dependent variable.*
+
+*The CEO concludes that gender and the interaction of gender and preferred login devices do not statistically significantly affect the average cashback amount. Only the preferred login device is identified as a significant factor influencing the dependent variable.*
+
+## 7. Inference about correlation:
+
+### Q7: It's time to start understanding the correlation between the number of hours spent on the app and the cashback amount.
+
+### a) Create a scatterplot that visualizes the relationship between two variables: 'HourSpendOnApp' (representing the number of hours spent on the app) and 'CashbackAmount' (representing the cashback amount).
+
+```{r}
+ggplot(data, aes(x = HourSpendOnApp, y = CashbackAmount)) +
+  geom_point() +
+  labs(title = "Scatterplot of HourSpendOnApp vs CashbackAmount",
+       x = "HourSpendOnApp",
+       y = "CashbackAmount")
+```
+
+### b) Is number of hour spent on app correlated with cashback amount? Perform an appropriate statistical test using Pearson correlation at the alpha = 0.05 significance level and comment on the results.
+
+H0: A significant linear relationship does not exist between Hour Spent On App and Cashback Amount.
+H1: A significant linear relationship exists between Hour Spent On App and Cashback Amount.
+
+```{r}
+cor.test(data$HourSpendOnApp, data$CashbackAmount, method = c("pearson"))
+```
+
+*Insight: The correlation coefficient (0.12) is positive, indicating there is nearly no correlation. The p-value is very small, indicating that we can reject the null hypothesis, suggesting that there is a statistically significant correlation between the number of hours spent on the app and the cashback amount.*
+
+## 8. Regression:
+
+### Q8: The CEO wants to know what related attributes affect the cash back amount, so he choose some of the columns, including tenure, distance of warehouse to home, hour spend on app, satisfaction score, how many coupons are used and how many order count there are,  which he thinks might be the factors. In addition, he wants to know which column of attribute is statistically significant to the cash back amount.
+
+### a) Create scatterplots to visualize the relationship of cash back amount and selected column. Make sure to label the plot (title, axes), and comment on trends you observe.
+
+```{r}
+ggplot(data = data, aes(x = Tenure, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Tenure", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Tenure")
+
+ggplot(data = data, aes(x = WarehouseToHome, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Warehouse to Home", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Warehouse to Home")
+
+ggplot(data = data, aes(x = HourSpendOnApp, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Hour Spend on App", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Hour Spend on App")
+
+ggplot(data = data, aes(x = SatisfactionScore, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Statisfaction Score", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Statisfaction Score")
+
+ggplot(data = data, aes(x = CouponUsed, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Coupon Used", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Coupon used")
+
+ggplot(data = data, aes(x = OrderCount, y = CashbackAmount)) +
+  geom_point() +
+  labs(x = "Order Count", y = "Cashback Amount") +
+  ggtitle("Scatter Plot: Cashback Amount vs Order Count")
+```
+
+```{r}
+model <- lm(data$CashbackAmount ~ data$Tenure + data$WarehouseToHome + 
+              data$HourSpendOnApp + data$SatisfactionScore  + 
+              data$CouponUsed + data$OrderCount)
+summary(model)
+```
+
+*Insight: Among the independent columns, Tenure, WarehouseToHome, and HourSpendOnApp seem to have a statistically significant relationship with CashbackAmount. However, SatisfactionScore and CouponUsed don't appear to have a significant linear relationship with CashbackAmount based on their p-values. However, this model explains about 23.53% of the variance in CashbackAmount, which means even the statistically significant columns don't explain much of the variance in cash back amount. The CEO might need to gather other columns of data to have a more linear and better relationship of cash back amount.*
+
+### b) Report the regression equation, a 90% confidence interval for the coefficient of tenure, and the coefficient of determination.
+
+```{r}
+# Report the regression equation
+cat("Regression Equation:\n")
+cat("Cash back amount =", coef(model)[1], "+", coef(model)[2], "* data$Tenure +", 
+    coef(model)[3], "* data$WarehouseToHome +", coef(model)[4], "* data$HourSpendOnApp +", 
+    coef(model)[5], "* data$SatisfactionScore +", coef(model)[6], "* data$CouponUsed +", 
+    coef(model)[7], "* data$OrderCount\n")
+
+# 90% confidence interval for the coefficient of data$Tenure
+conf_interval <- confint(model, "data$Tenure", level = 0.9)
+cat("90% Confidence Interval for the Coefficient of data$Tenure:\n")
+cat(paste("(", conf_interval[1], ",", conf_interval[2], ")\n\n"))
+
+# Coefficient of determination
+cat("Coefficient of Determination (R-squared):", summary(model)$r.squared, "\n")
+```
+### c) Construct a 95% confidence interval for the slope of the estimated regression equation and interpret the results.
+
+```{r}
+confint(model, level=0.95)
+```
+
+*Insight: The 95% confidence intervals for the regression coefficients provide a range of plausible values for the impact of each variable on the cashback amount. For instance, there is 95% confidence that a one-unit increase in data$Tenure is associated with an increase in cashback amount between 2.40 and 2.66.*
+
